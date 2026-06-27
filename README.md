@@ -1,42 +1,49 @@
----
+# PGLM-QEM: Physics-Guided Linear Mapper for Quantum Error Mitigation
 
-## Noise Model
+A lightweight, interpretable quantum error mitigation framework that encodes 
+depolarizing noise physics directly into a feature vector and applies ridge 
+regression to recover ideal expectation values from noisy quantum circuit 
+measurements.
 
-Two-tier strategy:
-
-1. Attempt to load a Qiskit fake backend (FakeLima / FakeTokyo / FakeJakarta) 
-   to inherit real IBM hardware T1/T2/readout calibration
-2. If unavailable, construct manually:
-   - 0.2% depolarizing error on single-qubit gates
-   - 2.0% depolarizing error on two-qubit gates (cx, cz)
-   - 2.0% readout error per qubit
-
-All simulations use 1024 shots with seeded simulators for reproducibility.
+Accepted at Computing Conference 2026, Springer Lecture Notes in Networks 
+and Systems (LNNS).
 
 ---
 
-## Results
+## Overview
 
-| Circuit Size | Raw RMSE | PGLM RMSE | Improvement |
-|-------------|----------|-----------|-------------|
-| 1-qubit     | baseline | worse     | -127.3%     |
-| 2-qubit     | baseline | better    | +17.8%      |
-| 3-qubit     | baseline | better    | +50.1%      |
-| 4-qubit     | baseline | better    | +32.3%      |
-| Overall (with fallback) | baseline | better | +32.6% |
+Existing quantum error mitigation methods either require prohibitive sampling 
+overhead (Zero-Noise Extrapolation, Probabilistic Error Cancellation) or 
+thousands of training circuits and hours of training time (neural network 
+approaches). PGLM addresses both problems by encoding known noise physics 
+into seven hand-designed features, then fitting a ridge regression model with 
+a closed-form solution.
 
-Single-qubit circuits degrade because most features collapse when n_cx = 0. 
-The fallback strategy uses raw noisy values for 1-qubit circuits and PGLM 
-for all others.
+**Key properties:**
+- 100 training circuits vs 1,000-10,000 for neural network approaches
+- Training time under 3 seconds on standard hardware
+- Sub-millisecond inference per circuit
+- 5 KB model size vs hundreds of megabytes for neural networks
+- Interpretable coefficients that confirm the underlying noise physics
+- 32.6% overall RMSE reduction with circuit-size-aware fallback strategy
 
-**Learned coefficients (example run):**
+---
 
-| Feature          | Coefficient | Physical interpretation                        |
-|-----------------|-------------|-----------------------------------------------|
-| 1 (bias)        | -0.022      | baseline offset                               |
-| y_noisy         | +0.569      | systematic overestimation by noise            |
-| y_noisy * n_cx  | -0.028      | CNOT gates reduce expectation magnitude       |
-| y_noisy * depth | +0.068      | depth-dependent decoherence correction        |
-| y_noisy * eps_ro| +0.011      | readout error scaling                         |
-| n_cx            | -0.003      | structural bias from CNOT count               |
-| depth           | +0.002      | structural bias from circuit depth            |
+## The Feature Vector
+
+PGLM constructs a 7-dimensional physics-informed feature vector per circuit:
+
+    phi = [1, y_noisy, y_noisy * n_cx, y_noisy * depth, y_noisy * eps_ro, n_cx, depth]
+
+where:
+- `y_noisy` is the measured noisy expectation value
+- `n_cx` is the CNOT gate count extracted from the transpiled circuit
+- `depth` is the circuit depth after transpilation
+- `eps_ro` is the average readout error rate for measured qubits
+
+Each term is physically motivated. Depolarizing noise corrupts expectation 
+values multiplicatively: E[O]_noisy ~ (1-p)^n_gates * E[O]_ideal. This means 
+the correction depends on the noisy value interacting with circuit structure, 
+not just the noisy value alone.
+
+---
